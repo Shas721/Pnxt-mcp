@@ -1,0 +1,135 @@
+from mcp.server.mcpserver import MCPServer
+from tools.orders import (
+    get_order_by_id as fetch_order_by_id,
+    get_order_stats as fetch_order_stats,
+    get_orders as fetch_orders,
+    get_status_transitions as fetch_status_transitions,
+)
+from tools.products import (
+    get_product_by_id as fetch_product_by_id,
+    get_product_summary as fetch_product_summary,
+    get_products as fetch_products,
+)
+from tools.system import (
+    check_authentication as run_authentication_check,
+    check_backend_health as run_backend_health_check,
+    check_configuration as run_configuration_check,
+)
+from services.metrics import get_metrics
+
+# Global MCP server object
+mcp = MCPServer("PointNXT MCP")
+
+@mcp.tool()
+async def get_orders(
+    limit: int = 10,
+    page: int = 1,
+    order_status: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+):
+    """Retrieve PointNXT orders with pagination, status, and date filters.
+
+    Examples: use order_status="CANCELLED" for cancelled orders, or provide
+    start_date="2026-01-01" and end_date="2026-01-31" for a date range.
+    """
+    return await fetch_orders(
+        limit=limit,
+        page=page,
+        order_status=order_status,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+@mcp.tool()
+async def get_order_by_id(order_id: str):
+    """Retrieve complete details for one PointNXT order by its ID."""
+    return await fetch_order_by_id(order_id)
+
+
+@mcp.tool()
+async def get_order_stats():
+    """Retrieve dashboard statistics grouped by PointNXT order status."""
+    return await fetch_order_stats()
+
+
+@mcp.tool()
+async def get_status_transitions():
+    """Retrieve valid workflow transitions for PointNXT order statuses."""
+    return await fetch_status_transitions()
+
+
+@mcp.tool()
+async def get_products(
+    limit: int | None = None,
+    page: int | None = None,
+    sku: str | None = None,
+    name: str | None = None,
+    status: str | None = None,
+    barcode: str | None = None,
+    brand_id: str | None = None,
+    category_id: str | None = None,
+    channel_id: str | None = None,
+    vendor_id: str | None = None,
+    seller_id: str | None = None,
+    warehouse_id: str | None = None,
+):
+    """Retrieve catalog products with pagination and business filters.
+
+    Examples: use sku="SKU-123", status="ACTIVE", or provide category_id,
+    vendor_id, warehouse_id, or channel_id to narrow the catalog results.
+    """
+    return await fetch_products(
+        limit=limit,
+        page=page,
+        sku=sku,
+        name=name,
+        status=status,
+        barcode=barcode,
+        brand_id=brand_id,
+        category_id=category_id,
+        channel_id=channel_id,
+        vendor_id=vendor_id,
+        seller_id=seller_id,
+        warehouse_id=warehouse_id,
+    )
+
+
+@mcp.tool()
+async def get_product_by_id(product_id: str):
+    """Retrieve complete catalog information for one product by ID."""
+    return await fetch_product_by_id(product_id)
+
+
+@mcp.tool()
+async def get_product_summary():
+    """Retrieve catalog and inventory dashboard metrics for products."""
+    return await fetch_product_summary()
+
+
+@mcp.tool()
+def check_backend_health():
+    """Check PointNXT backend reachability and API latency."""
+    return run_backend_health_check()
+
+
+@mcp.tool()
+def check_authentication():
+    """Check whether PointNXT authentication is valid."""
+    return run_authentication_check()
+
+
+@mcp.tool()
+def check_configuration():
+    """Check whether required PointNXT configuration is present."""
+    return run_configuration_check()
+
+
+@mcp.tool()
+def get_mcp_metrics():
+    """Return in-process MCP request and backend performance metrics."""
+    return get_metrics()
+
+if __name__ == "__main__":
+    mcp.run()
