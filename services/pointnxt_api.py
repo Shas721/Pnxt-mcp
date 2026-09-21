@@ -14,7 +14,9 @@ from config import (
     POINTNXT_REFRESH_ENDPOINT,
     POINTNXT_REFRESH_TOKEN,
     POINTNXT_TENANT_ID,
+    DEV_MODE,
 )
+from services.auth_session import clear_session, get_session
 
 logger = logging.getLogger(__name__)
 
@@ -34,25 +36,27 @@ class PointNXTAPI:
 
         access_token = (POINTNXT_ACCESS_TOKEN or "").strip()
         self.refresh_token = (POINTNXT_REFRESH_TOKEN or "").strip()
-        self.refresh_endpoint = POINTNXT_REFRESH_ENDPOINT or "/auth/refresh"
+        self.refresh_endpoint = POINTNXT_REFRESH_ENDPOINT or "/auth/refresh-token"
         tenant_id = (POINTNXT_TENANT_ID or "").strip()
-
-        if not access_token:
-            raise ValueError(
-                "POINTNXT_ACCESS_TOKEN is not configured. "
-                "Set it in your .env file."
-            )
-        if not tenant_id:
-            raise ValueError(
-                "POINTNXT_TENANT_ID is not configured. "
-                "Set it in your .env file."
-            )
 
         self.headers = {
             "Authorization": f"Bearer {access_token}",
             "x-tenant-id": tenant_id,
             "Content-Type": "application/json",
         }
+        self.dev_access_token = access_token
+        self.dev_tenant_id = tenant_id
+        self._refresh_lock = asyncio.Lock()
+
+    def _apply_auth(self) -> None:
+        session = get_session()
+        if session and session.is_authenticated():
+            token, tenant = session.get_access_token(), session.get_tenant_id()
+        elif DEV_MODE and self.dev_access_token and self.dev_tenant_id:
+            token, tenant = self.dev_access_token, self.dev_tenant_id
+        else:
+            raise RuntimeError("Please sign in to PointNXT first.")
+        self.headers.update({"Authorization": f"Bearer {token}", "x-tenant-id": tenant})
 
     def check_backend_health(self) -> dict:
         """Check whether the configured PointNXT backend is reachable."""
@@ -126,7 +130,9 @@ class PointNXTAPI:
 
     def _refresh_access_token(self) -> None:
         """Refresh the access token and update the shared auth headers."""
-        if not self.refresh_token:
+        session = get_session()
+        refresh_token = session.get_refresh_token() if session else self.refresh_token
+        if not refresh_token:
             raise RuntimeError(
                 "PointNXT authentication failed: no refresh token is configured. "
                 "Set POINTNXT_REFRESH_TOKEN in the environment."
@@ -139,7 +145,7 @@ class PointNXTAPI:
         try:
             response = requests.post(
                 f"{self.base_url}{self.refresh_endpoint}",
-                json={"refreshToken": self.refresh_token},
+                json={"refreshToken": refresh_token},
                 headers={
                     "x-tenant-id": self.headers["x-tenant-id"],
                     "Content-Type": "application/json",
@@ -202,6 +208,10 @@ class PointNXTAPI:
             )
 
         self.headers["Authorization"] = f"Bearer {access_token}"
+        if session:
+            session.access_token = access_token
+            if refreshed_token:
+                session.refresh_token = refreshed_token
         if refreshed_token:
             self.refresh_token = refreshed_token
         _structured_log(
@@ -220,6 +230,7 @@ class PointNXTAPI:
     ) -> dict:
         """Send an authenticated request and return its JSON response."""
 
+        self._apply_auth()
         params = kwargs.get("params")
         log_params = params if params else {}
         kwargs.setdefault("timeout", 30)
@@ -333,7 +344,11 @@ class PointNXTAPI:
                     status_code=response.status_code,
                     latency_ms=round(elapsed * 1000, 2),
                 )
-                self._refresh_access_token()
+                try:
+                    self._refresh_access_token()
+                except Exception:
+                    clear_session()
+                    raise RuntimeError("Please sign in to PointNXT first.")
                 return self._request(
                     method, endpoint, _retry_after_refresh=False, **kwargs
                 )
@@ -419,7 +434,9 @@ class PointNXTAPI:
             raise
 
     async def _async_refresh_access_token(self, client: httpx.AsyncClient) -> None:
-        if not self.refresh_token:
+        session = get_session()
+        refresh_token = session.get_refresh_token() if session else self.refresh_token
+        if not refresh_token:
             raise RuntimeError(
                 "PointNXT authentication failed: no refresh token is configured. "
                 "Set POINTNXT_REFRESH_TOKEN in the environment."
@@ -430,7 +447,7 @@ class PointNXTAPI:
         try:
             response = await client.post(
                 f"{self.base_url}{self.refresh_endpoint}",
-                json={"refreshToken": self.refresh_token},
+                json={"refreshToken": refresh_token},
                 headers={
                     "x-tenant-id": self.headers["x-tenant-id"],
                     "Content-Type": "application/json",
@@ -463,6 +480,10 @@ class PointNXTAPI:
                 "a new access token"
             )
         self.headers["Authorization"] = f"Bearer {access_token}"
+        if session:
+            session.access_token = access_token
+            if refreshed_token:
+                session.refresh_token = refreshed_token
         if refreshed_token:
             self.refresh_token = refreshed_token
 
@@ -480,6 +501,7 @@ class PointNXTAPI:
     async def _async_request(
         self, method: str, endpoint: str, _retry_after_refresh: bool = True, **kwargs
     ) -> dict:
+        self._apply_auth()
         max_attempts = 3
         retryable_statuses = {502, 503, 504}
         timeout = kwargs.pop("timeout", 30)
@@ -551,7 +573,16 @@ class PointNXTAPI:
                 )
 
                 if response.status_code == 401 and _retry_after_refresh:
-                    await self._async_refresh_access_token(client)
+                    session_before = get_session()
+                    token_before = session_before.get_access_token() if session_before else None
+                    async with self._refresh_lock:
+                        session_after = get_session()
+                        if not session_after or session_after.get_access_token() == token_before:
+                            try:
+                                await self._async_refresh_access_token(client)
+                            except Exception:
+                                clear_session()
+                                raise RuntimeError("Please sign in to PointNXT first.")
                     return await self._async_request(
                         method, endpoint, _retry_after_refresh=False, **kwargs
                     )

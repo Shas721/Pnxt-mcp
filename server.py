@@ -16,9 +16,34 @@ from tools.system import (
     check_configuration as run_configuration_check,
 )
 from services.metrics import get_metrics
+from tools.auth import authenticate as exchange_session, current_user as get_current_user, logout as clear_user_session
 
 # Global MCP server object
 mcp = MCPServer("PointNXT MCP")
+
+@mcp.tool()
+def current_user():
+    """Return the currently authenticated PointNXT user."""
+    return get_current_user()
+
+@mcp.tool()
+async def logout():
+    """Clear the current PointNXT web session."""
+    return clear_user_session()
+
+@mcp.tool()
+async def auth_status():
+    """Return lightweight authentication status without exposing tokens."""
+    user = get_current_user()
+    return {"authenticated": user.get("authenticated", False),
+            "user": user.get("user_id"), "email": user.get("email"),
+            "tenant": user.get("tenant_id"),
+            "expires_in_seconds": user.get("expires_in_seconds")}
+
+@mcp.tool()
+async def authenticate():
+    """Open PointNXT in the browser and sign in without entering credentials here."""
+    return await exchange_session()
 
 @mcp.tool()
 async def get_orders(
