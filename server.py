@@ -33,11 +33,6 @@ def current_user():
     return get_current_user()
 
 @mcp.tool()
-async def logout():
-    """Clear the current PointNXT web session."""
-    return clear_user_session()
-
-@mcp.tool()
 async def auth_status():
     """Return lightweight authentication status without exposing tokens."""
     user = get_current_user()

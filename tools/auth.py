@@ -122,14 +122,24 @@ async def login_with_credentials(email: str, password: str, remember_device: boo
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.post(
                 f"{POINTNXT_BASE_URL.rstrip('/')}/auth/login",
-                json={"email": email.strip(), "password": password, "rememberDevice": remember_device},
+                json={"email": email.strip(), "password": password},
             )
             if response.status_code in (401, 403):
                 return {"authenticated": False, "error": "Invalid email or password."}
+            if response.status_code == 400:
+                return {"authenticated": False, "error": "Backend validation error."}
+            if response.status_code >= 500:
+                return {"authenticated": False, "error": "PointNXT backend unavailable."}
             response.raise_for_status()
-            session = create_authenticated_session(response.json(), "credentials")
+            payload = response.json()
+            data = payload.get("data", {})
+            if not data.get("accessToken") or not data.get("tenantId"):
+                return {"authenticated": False, "error": "Authentication response was missing session information."}
+            session = create_authenticated_session({"data": data}, "credentials")
         logger.info("PointNXT credential authentication succeeded for %s", email.strip())
-        return session.as_dict()
+        result = session.as_dict()
+        result["tenant_id_present"] = bool(session.get_tenant_id())
+        return result
     except (httpx.TimeoutException, httpx.ConnectError):
         return {"authenticated": False, "error": "PointNXT backend unavailable."}
     except (httpx.HTTPError, ValueError):
