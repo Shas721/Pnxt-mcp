@@ -51,6 +51,7 @@ class PointNXTAPI:
     def _apply_auth(self) -> None:
         session = get_session()
         if session and session.is_authenticated():
+            logger.info("PointNXT authentication session loaded for API request")
             token, tenant = session.get_access_token(), session.get_tenant_id()
         elif DEV_MODE and self.dev_access_token and self.dev_tenant_id:
             token, tenant = self.dev_access_token, self.dev_tenant_id
@@ -91,12 +92,22 @@ class PointNXTAPI:
 
     def check_authentication(self) -> dict:
         """Validate authentication with a lightweight authenticated request."""
+        session = get_session()
+        if not session or not session.is_authenticated():
+            return {"status": "unhealthy", "authenticated": False,
+                    "tenant_id_present": bool(session and session.get_tenant_id()),
+                    "expires_at": session.expires_at.isoformat() if session and session.expires_at else None,
+                    "authentication_mode": "none",
+                    "error": "Please sign in to PointNXT first."}
         started_at = perf_counter()
         try:
             self.get("/commerce/orders", params={"limit": 1, "page": 1})
             return {
                 "status": "healthy",
                 "authenticated": True,
+                "tenant_id_present": bool(session.get_tenant_id()),
+                "expires_at": session.expires_at.isoformat() if session.expires_at else None,
+                "authentication_mode": "browser_session",
                 "latency_ms": round((perf_counter() - started_at) * 1000, 2),
             }
         except Exception as error:
@@ -125,6 +136,8 @@ class PointNXTAPI:
                 "authenticated_session": configured["session"],
             },
             "authentication_mode": "session" if session_active else ("dev_service_token" if dev_configured else "none"),
+            "tenant_id_present": bool(session and session.get_tenant_id()) if session_active else bool(dev_configured),
+            "expires_at": session.expires_at.isoformat() if session and session.expires_at else None,
             "missing": missing,
         }
 

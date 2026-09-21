@@ -38,7 +38,9 @@ async def authenticate() -> dict:
     """Open PointNXT in the browser and wait for the completed login callback."""
     existing = get_session()
     if existing and existing.is_authenticated():
+        logger.info("PointNXT authentication session loaded")
         return existing.as_dict()
+    logger.info("PointNXT authentication started")
     state = secrets.token_urlsafe(32)
     if DEV_MODE:
         values = await asyncio.to_thread(_wait_for_callback, state)
@@ -49,6 +51,7 @@ async def authenticate() -> dict:
         with _pending_lock:
             _pending[state] = (event, values)
         login_url = f"{POINTNXT_LOGIN_URL}?{urlencode({'redirect_uri': POINTNXT_AUTH_CALLBACK_URL, 'state': state})}"
+        logger.info("PointNXT login URL generated")
         return {"authenticated": False, "message": "Open the login URL to sign in to PointNXT.", "login_url": login_url}
     if not values:
         return {"authenticated": False, "message": "PointNXT sign-in timed out or was not completed."}
@@ -64,12 +67,15 @@ async def auth_callback(request):
     from starlette.responses import JSONResponse
     values = dict(request.query_params)
     state = values.get("state", "")
+    logger.info("PointNXT authentication callback received")
     with _pending_lock:
         pending = _pending.get(state)
     if not state or pending is None:
+        logger.warning("PointNXT authentication callback state validation failed")
         return JSONResponse({"authenticated": False, "message": "Invalid or expired authentication state."}, status_code=401)
     event, result = pending
     result.update(values)
+    logger.info("PointNXT authentication callback state validation passed")
     if not values.get("accessToken") and not values.get("access_token") and values.get("code"):
         try:
             async with httpx.AsyncClient(timeout=15) as client:
@@ -86,6 +92,7 @@ async def auth_callback(request):
         return JSONResponse({"authenticated": False, "message": "PointNXT sign-in response did not include an access token."}, status_code=401)
     set_session(values)
     logger.info("PointNXT browser login succeeded")
+    logger.info("PointNXT authentication session stored successfully")
     with _pending_lock:
         _pending.pop(state, None)
     event.set()
