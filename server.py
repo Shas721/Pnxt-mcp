@@ -45,7 +45,7 @@ async def auth_status():
             "tenant": user.get("tenant_id"),
             "expires_in_seconds": user.get("expires_in_seconds")}
 
-@mcp.tool()
+@mcp.tool(name="authenticate_with_pointnxt", title="Authenticate with PointNXT")
 async def authenticate():
     """Open PointNXT in the browser and sign in without entering credentials here."""
     return await exchange_session()
