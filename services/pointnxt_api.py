@@ -109,11 +109,12 @@ class PointNXTAPI:
 
     def check_configuration(self) -> dict:
         """Check required API configuration without making a network request."""
+        session = get_session()
+        session_active = bool(session and session.is_authenticated())
+        dev_configured = DEV_MODE and bool(self.dev_access_token and self.dev_tenant_id)
         configured = {
             "base_url": bool(self.base_url),
-            "access_token": bool(self.headers.get("Authorization")),
-            "tenant_id": bool(self.headers.get("x-tenant-id")),
-            "refresh_token": bool(self.refresh_token),
+            "session": session_active or dev_configured,
         }
         missing = [name for name, value in configured.items() if not value]
         return {
@@ -121,10 +122,9 @@ class PointNXTAPI:
             "configured": not missing,
             "required": {
                 "base_url": configured["base_url"],
-                "access_token": configured["access_token"],
-                "tenant_id": configured["tenant_id"],
+                "authenticated_session": configured["session"],
             },
-            "refresh_token_configured": configured["refresh_token"],
+            "authentication_mode": "session" if session_active else ("dev_service_token" if dev_configured else "none"),
             "missing": missing,
         }
 

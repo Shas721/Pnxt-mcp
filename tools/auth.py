@@ -1,15 +1,19 @@
 import asyncio
 import secrets
 import logging
+import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlencode, urlparse, parse_qs
 import httpx
 
-from config import AUTH_CALLBACK_TIMEOUT, POINTNXT_BASE_URL, POINTNXT_LOGIN_URL
+from config import (AUTH_CALLBACK_TIMEOUT, DEV_MODE, POINTNXT_AUTH_CALLBACK_URL,
+                    POINTNXT_BASE_URL, POINTNXT_LOGIN_URL)
 from services.auth_session import clear_session, current_user as session_user, get_session, set_session
 
 logger = logging.getLogger(__name__)
+_pending: dict[str, tuple[threading.Event, dict]] = {}
+_pending_lock = threading.Lock()
 
 def current_user() -> dict:
     return session_user()
@@ -33,7 +37,20 @@ def _wait_for_callback(state: str) -> dict:
 async def authenticate() -> dict:
     """Open PointNXT in the browser and wait for the completed login callback."""
     state = secrets.token_urlsafe(32)
-    values = await asyncio.to_thread(_wait_for_callback, state)
+    if DEV_MODE:
+        values = await asyncio.to_thread(_wait_for_callback, state)
+    else:
+        if not POINTNXT_AUTH_CALLBACK_URL.startswith("https://"):
+            return {"authenticated": False, "message": "PointNXT public authentication callback is not configured."}
+        event, values = threading.Event(), {}
+        with _pending_lock:
+            _pending[state] = (event, values)
+        webbrowser.open(f"{POINTNXT_LOGIN_URL}?{urlencode({'redirect_uri': POINTNXT_AUTH_CALLBACK_URL, 'state': state})}")
+        completed = await asyncio.to_thread(event.wait, AUTH_CALLBACK_TIMEOUT)
+        with _pending_lock:
+            _pending.pop(state, None)
+        if not completed:
+            return {"authenticated": False, "message": "PointNXT sign-in timed out or was not completed."}
     if not values:
         return {"authenticated": False, "message": "PointNXT sign-in timed out or was not completed."}
     if not secrets.compare_digest(values.get("state", ""), state):
@@ -42,6 +59,20 @@ async def authenticate() -> dict:
         return {"authenticated": False, "message": "PointNXT sign-in timed out or was not completed."}
     logger.info("PointNXT browser login succeeded")
     return set_session(values).as_dict()
+
+async def auth_callback(request):
+    """Receive the public browser callback and wake the waiting authenticate call."""
+    from starlette.responses import JSONResponse
+    values = dict(request.query_params)
+    state = values.get("state", "")
+    with _pending_lock:
+        pending = _pending.get(state)
+    if not state or pending is None:
+        return JSONResponse({"authenticated": False, "message": "Invalid or expired authentication state."}, status_code=401)
+    event, result = pending
+    result.update(values)
+    event.set()
+    return JSONResponse({"message": "PointNXT sign-in received. You may close this window."})
 
 async def logout() -> dict:
     session = get_session()

@@ -16,10 +16,15 @@ from tools.system import (
     check_configuration as run_configuration_check,
 )
 from services.metrics import get_metrics
-from tools.auth import authenticate as exchange_session, current_user as get_current_user, logout as clear_user_session
+from tools.auth import (auth_callback, authenticate as exchange_session,
+                        current_user as get_current_user, logout as clear_user_session)
 
 # Global MCP server object
 mcp = MCPServer("PointNXT MCP")
+
+@mcp.custom_route("/auth/callback", methods=["GET"])
+async def pointnxt_auth_callback(request):
+    return await auth_callback(request)
 
 @mcp.tool()
 def current_user():
