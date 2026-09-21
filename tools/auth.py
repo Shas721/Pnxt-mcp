@@ -10,6 +10,7 @@ import httpx
 from config import (AUTH_CALLBACK_TIMEOUT, DEV_MODE, POINTNXT_AUTH_CALLBACK_URL,
                     POINTNXT_BASE_URL, POINTNXT_LOGIN_URL)
 from services.auth_session import clear_session, current_user as session_user, get_session, set_session
+from services.session_manager import create_authenticated_session
 
 logger = logging.getLogger(__name__)
 _pending: dict[str, tuple[threading.Event, dict]] = {}
@@ -60,7 +61,7 @@ async def authenticate() -> dict:
     if not values.get("accessToken") and not values.get("access_token"):
         return {"authenticated": False, "message": "PointNXT sign-in timed out or was not completed."}
     logger.info("PointNXT browser login succeeded")
-    return set_session(values).as_dict()
+    return create_authenticated_session(values, "browser").as_dict()
 
 async def auth_callback(request):
     """Receive the public browser callback and wake the waiting authenticate call."""
@@ -93,7 +94,7 @@ async def auth_callback(request):
             return JSONResponse({"authenticated": False, "message": "PointNXT sign-in could not be completed."}, status_code=401)
     if not values.get("accessToken") and not values.get("access_token"):
         return JSONResponse({"authenticated": False, "message": "PointNXT sign-in response did not include an access token."}, status_code=401)
-    set_session(values)
+    create_authenticated_session(values, "browser")
     logger.info("PointNXT browser login succeeded")
     logger.info("PointNXT authentication session stored successfully")
     with _pending_lock:
@@ -112,3 +113,24 @@ async def logout() -> dict:
         clear_session()
     logger.info("PointNXT logout completed")
     return {"authenticated": False, "message": "You have been signed out of PointNXT."}
+
+async def login_with_credentials(email: str, password: str, remember_device: bool = True) -> dict:
+    """Authenticate with PointNXT credentials without storing the password."""
+    if not email or not email.strip() or not password:
+        return {"authenticated": False, "error": "Email and password are required."}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{POINTNXT_BASE_URL.rstrip('/')}/auth/login",
+                json={"email": email.strip(), "password": password, "rememberDevice": remember_device},
+            )
+            if response.status_code in (401, 403):
+                return {"authenticated": False, "error": "Invalid email or password."}
+            response.raise_for_status()
+            session = create_authenticated_session(response.json(), "credentials")
+        logger.info("PointNXT credential authentication succeeded for %s", email.strip())
+        return session.as_dict()
+    except (httpx.TimeoutException, httpx.ConnectError):
+        return {"authenticated": False, "error": "PointNXT backend unavailable."}
+    except (httpx.HTTPError, ValueError):
+        return {"authenticated": False, "error": "PointNXT authentication failed."}

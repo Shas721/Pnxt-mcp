@@ -17,6 +17,7 @@ from tools.system import (
 )
 from services.metrics import get_metrics
 from tools.auth import (auth_callback, authenticate as exchange_session,
+                        login_with_credentials as login_credentials,
                         current_user as get_current_user, logout as clear_user_session)
 
 # Global MCP server object
@@ -49,6 +50,16 @@ async def auth_status():
 async def authenticate():
     """Open PointNXT in the browser and sign in without entering credentials here."""
     return await exchange_session()
+
+@mcp.tool(name="login_with_credentials", title="Login to PointNXT")
+async def login_with_credentials(email: str, password: str, remember_device: bool = True):
+    """Authenticate directly with PointNXT email and password."""
+    return await login_credentials(email, password, remember_device)
+
+@mcp.tool(name="logout_pointnxt", title="Logout from PointNXT")
+async def logout_pointnxt():
+    """Log out of the active PointNXT session."""
+    return await clear_user_session()
 
 @mcp.tool()
 async def get_orders(

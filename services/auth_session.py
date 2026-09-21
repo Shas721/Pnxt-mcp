@@ -12,6 +12,11 @@ class AuthSession:
     user_id: str | None = None
     email: str | None = None
     expires_at: datetime | None = None
+    login_method: str | None = None
+    name: str | None = None
+    role: str | None = None
+    created_at: datetime | None = None
+    last_used_at: datetime | None = None
 
     def is_authenticated(self) -> bool:
         return bool(self.access_token and self.tenant_id) and (
@@ -29,7 +34,8 @@ class AuthSession:
     def as_dict(self) -> dict[str, Any]:
         return {"authenticated": self.is_authenticated(), "email": self.email,
                 "user_id": self.user_id, "tenant_id": self.tenant_id,
-                "membership_id": self.membership_id,
+                "membership_id": self.membership_id, "name": self.name, "role": self.role,
+                "login_method": self.login_method,
                 "session_expiry": self.expires_at.isoformat() if self.expires_at else None,
                 "expires_in_seconds": self.expires_in_seconds()}
 
