@@ -40,8 +40,11 @@ def clear_session() -> None:
     _session = None
 def set_session(payload: dict[str, Any]) -> AuthSession:
     data = payload.get("data", payload)
-    expiry = data.get("expiresAt") or data.get("expires_at")
-    parsed = datetime.fromisoformat(expiry.replace("Z", "+00:00")) if expiry else None
+    expiry = data.get("expiresAt") or data.get("expires_at") or data.get("expiresIn")
+    if isinstance(expiry, (int, float)):
+        parsed = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() + expiry, timezone.utc)
+    else:
+        parsed = datetime.fromisoformat(expiry.replace("Z", "+00:00")) if expiry else None
     global _session
     _session = AuthSession(data.get("accessToken") or data.get("access_token") or "",
                            data.get("refreshToken") or data.get("refresh_token") or "",

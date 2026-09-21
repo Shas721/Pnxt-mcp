@@ -84,9 +84,12 @@ async def auth_callback(request):
                     json={"code": values["code"], "redirectUri": POINTNXT_AUTH_CALLBACK_URL},
                 )
                 response.raise_for_status()
-            values = response.json().get("data", response.json())
+            payload = response.json()
+            values = payload.get("data", payload)
+            logger.info("PointNXT authorization code exchange succeeded")
             result.clear(); result.update(values)
         except (httpx.HTTPError, ValueError, KeyError):
+            logger.warning("PointNXT authorization code exchange failed")
             return JSONResponse({"authenticated": False, "message": "PointNXT sign-in could not be completed."}, status_code=401)
     if not values.get("accessToken") and not values.get("access_token"):
         return JSONResponse({"authenticated": False, "message": "PointNXT sign-in response did not include an access token."}, status_code=401)
