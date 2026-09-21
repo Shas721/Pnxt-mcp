@@ -69,9 +69,11 @@ async def auth_callback(request):
     values = dict(request.query_params)
     state = values.get("state", "")
     logger.info("PointNXT authentication callback received")
+    if not state:
+        return JSONResponse({"authenticated": False, "message": "Missing authentication state."}, status_code=400)
     with _pending_lock:
         pending = _pending.get(state)
-    if not state or pending is None:
+    if pending is None:
         logger.warning("PointNXT authentication callback state validation failed")
         return JSONResponse({"authenticated": False, "message": "Invalid or expired authentication state."}, status_code=401)
     event, result = pending
@@ -101,6 +103,21 @@ async def auth_callback(request):
         _pending.pop(state, None)
     event.set()
     return JSONResponse({"message": "PointNXT sign-in received. You may close this window."})
+
+async def auth_check(request):
+    """Public diagnostic endpoint for the current in-process session."""
+    from starlette.responses import JSONResponse
+    logger.info("PointNXT authentication check requested")
+    user = session_user()
+    if not user.get("authenticated"):
+        return JSONResponse({"authenticated": False})
+    return JSONResponse({
+        "authenticated": True,
+        "login_method": user.get("login_method"),
+        "tenant_id_present": bool(user.get("tenant_id")),
+        "expires_at": user.get("session_expiry"),
+        "user": {"email": user.get("email"), "name": user.get("name")},
+    })
 
 async def logout() -> dict:
     session = get_session()
