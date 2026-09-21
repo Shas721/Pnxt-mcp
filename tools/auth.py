@@ -36,6 +36,9 @@ def _wait_for_callback(state: str) -> dict:
 
 async def authenticate() -> dict:
     """Open PointNXT in the browser and wait for the completed login callback."""
+    existing = get_session()
+    if existing and existing.is_authenticated():
+        return existing.as_dict()
     state = secrets.token_urlsafe(32)
     if DEV_MODE:
         values = await asyncio.to_thread(_wait_for_callback, state)
@@ -45,12 +48,8 @@ async def authenticate() -> dict:
         event, values = threading.Event(), {}
         with _pending_lock:
             _pending[state] = (event, values)
-        webbrowser.open(f"{POINTNXT_LOGIN_URL}?{urlencode({'redirect_uri': POINTNXT_AUTH_CALLBACK_URL, 'state': state})}")
-        completed = await asyncio.to_thread(event.wait, AUTH_CALLBACK_TIMEOUT)
-        with _pending_lock:
-            _pending.pop(state, None)
-        if not completed:
-            return {"authenticated": False, "message": "PointNXT sign-in timed out or was not completed."}
+        login_url = f"{POINTNXT_LOGIN_URL}?{urlencode({'redirect_uri': POINTNXT_AUTH_CALLBACK_URL, 'state': state})}"
+        return {"authenticated": False, "message": "Open the login URL to sign in to PointNXT.", "login_url": login_url}
     if not values:
         return {"authenticated": False, "message": "PointNXT sign-in timed out or was not completed."}
     if not secrets.compare_digest(values.get("state", ""), state):
@@ -71,6 +70,24 @@ async def auth_callback(request):
         return JSONResponse({"authenticated": False, "message": "Invalid or expired authentication state."}, status_code=401)
     event, result = pending
     result.update(values)
+    if not values.get("accessToken") and not values.get("access_token") and values.get("code"):
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(
+                    f"{POINTNXT_BASE_URL.rstrip('/')}/auth/login",
+                    json={"code": values["code"], "redirectUri": POINTNXT_AUTH_CALLBACK_URL},
+                )
+                response.raise_for_status()
+            values = response.json().get("data", response.json())
+            result.clear(); result.update(values)
+        except (httpx.HTTPError, ValueError, KeyError):
+            return JSONResponse({"authenticated": False, "message": "PointNXT sign-in could not be completed."}, status_code=401)
+    if not values.get("accessToken") and not values.get("access_token"):
+        return JSONResponse({"authenticated": False, "message": "PointNXT sign-in response did not include an access token."}, status_code=401)
+    set_session(values)
+    logger.info("PointNXT browser login succeeded")
+    with _pending_lock:
+        _pending.pop(state, None)
     event.set()
     return JSONResponse({"message": "PointNXT sign-in received. You may close this window."})
 

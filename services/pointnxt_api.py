@@ -501,12 +501,19 @@ class PointNXTAPI:
     async def _async_request(
         self, method: str, endpoint: str, _retry_after_refresh: bool = True, **kwargs
     ) -> dict:
-        self._apply_auth()
         max_attempts = 3
         retryable_statuses = {502, 503, 504}
         timeout = kwargs.pop("timeout", 30)
 
         async with httpx.AsyncClient(timeout=timeout) as client:
+            session = get_session()
+            if session and session.is_expired() and session.get_refresh_token():
+                try:
+                    await self._async_refresh_access_token(client)
+                except Exception:
+                    clear_session()
+                    raise RuntimeError("Please sign in to PointNXT first.")
+            self._apply_auth()
             for attempt in range(1, max_attempts + 1):
                 request_id = str(uuid4())
                 started_at = perf_counter()
