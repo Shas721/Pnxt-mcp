@@ -2,7 +2,8 @@ from typing import Any
 
 from services.pointnxt_api import PointNXTAPI
 
-api = PointNXTAPI()
+def get_api() -> PointNXTAPI:
+    return PointNXTAPI()
 
 
 async def get_products(
@@ -40,13 +41,13 @@ async def get_products(
         if value is not None
     }
 
-    return await api.async_get("/commerce/products", params=params)
+    return await get_api().async_get("/commerce/products", params=params)
 
 
 async def get_product_summary() -> dict[str, Any]:
     """Retrieve product and inventory summary metrics from the backend."""
 
-    return await api.async_get("/commerce/products/summary")
+    return await get_api().async_get("/commerce/products/summary")
 
 
 async def get_product_by_id(product_id: str) -> dict[str, Any]:
@@ -55,4 +56,4 @@ async def get_product_by_id(product_id: str) -> dict[str, Any]:
     if not isinstance(product_id, str) or not product_id.strip():
         raise ValueError("product_id must be a non-empty string")
 
-    return await api.async_get(f"/commerce/products/{product_id}")
+    return await get_api().async_get(f"/commerce/products/{product_id}")

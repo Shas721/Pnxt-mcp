@@ -4,7 +4,8 @@ from typing import Any
 
 from services.pointnxt_api import PointNXTAPI
 
-api = PointNXTAPI()
+def get_api() -> PointNXTAPI:
+    return PointNXTAPI()
 
 SUPPORTED_ORDER_STATUSES = {
     "PENDING",
@@ -102,7 +103,7 @@ async def get_orders(
         if value is not None:
             params[name] = value
 
-    return await api.async_get("/commerce/orders", params=params)
+    return await get_api().async_get("/commerce/orders", params=params)
 
 
 async def get_orders_summary(
@@ -167,12 +168,12 @@ async def get_order_by_id(order_id: str) -> dict[str, Any]:
     if not isinstance(order_id, str) or not order_id.strip():
         raise ValueError("order_id must be a non-empty string")
 
-    return await api.async_get(f"/commerce/orders/{order_id}")
+    return await get_api().async_get(f"/commerce/orders/{order_id}")
 
 
 async def get_order_stats() -> dict[str, Any]:
-    return await api.async_get("/commerce/orders/stats")
+    return await get_api().async_get("/commerce/orders/stats")
 
 
 async def get_status_transitions() -> dict[str, Any]:
-    return await api.async_get("/commerce/orders/status-transitions")
+    return await get_api().async_get("/commerce/orders/status-transitions")
