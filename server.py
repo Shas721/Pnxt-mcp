@@ -19,9 +19,11 @@ from services.metrics import get_metrics
 from tools.auth import (auth_callback, auth_check, authenticate as exchange_session,
                         login_with_credentials as login_credentials,
                         current_user as get_current_user, logout as clear_user_session)
+from prompts import register_prompts
 
 # Global MCP server object
 mcp = MCPServer("PointNXT MCP")
+register_prompts(mcp)
 
 @mcp.custom_route("/auth/callback", methods=["GET"])
 async def pointnxt_auth_callback(request):
